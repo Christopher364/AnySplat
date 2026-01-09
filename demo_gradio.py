@@ -178,10 +178,24 @@ def gradio_demo(
     all_files = [f"{i}: {filename}" for i, filename in enumerate(all_files)]
 
     print("Running run_model...")
-    with torch.no_grad():
-        plyfile, video, depth_colored = get_reconstructed_scene(
-            target_dir, model, device
-        )
+    import traceback
+    try:
+        with torch.no_grad():
+            plyfile, video, depth_colored = get_reconstructed_scene(
+                target_dir, model, device
+            )
+    except Exception as e:
+        error_msg = f"Error during reconstruction: {str(e)}\n{traceback.format_exc()}"
+        try:
+            print(error_msg, flush=True)
+        except (OSError, UnicodeEncodeError):
+            # Fallback for Windows encoding issues (errno 22)
+            sys.stderr.write(error_msg + "\n")
+            sys.stderr.flush()
+        # Also write to a log file
+        with open("reconstruction_errors.log", "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*80}\n{time.strftime('%Y-%m-%d %H:%M:%S')}\n{error_msg}\n")
+        raise
 
     end_time = time.time()
     print(f"Total time: {end_time - start_time:.2f} seconds (including IO)")
@@ -311,4 +325,50 @@ if __name__ == "__main__":
         )
 
         # demo.launch(share=share, server_name=server_name, server_port=server_port)
-        demo.queue(max_size=20).launch(show_error=True, share=False)
+        import sys
+        import traceback
+        import atexit
+        
+        # Save original stderr
+        original_stderr = sys.stderr
+        
+        # Create a class that writes to both file and original stderr
+        class TeeStderr:
+            def __init__(self, file, original):
+                self.file = file
+                self.original = original
+            
+            def write(self, text):
+                self.file.write(text)
+                self.file.flush()
+                self.original.write(text)
+                self.original.flush()
+            
+            def flush(self):
+                self.file.flush()
+                self.original.flush()
+            
+            def close(self):
+                self.file.close()
+        
+        # Open log file and create tee wrapper
+        log_file = open("runtime_errors.log", "w", encoding="utf-8")
+        tee_stderr = TeeStderr(log_file, original_stderr)
+        sys.stderr = tee_stderr
+        
+        # Register cleanup function to restore stderr and close file on exit
+        def cleanup():
+            sys.stderr = original_stderr
+            if not log_file.closed:
+                log_file.close()
+        
+        atexit.register(cleanup)
+        
+        print("Starting Gradio app...", flush=True)
+        print("Errors will be logged to runtime_errors.log", flush=True)
+        try:
+            demo.queue(max_size=20).launch(show_error=True, share=False)
+        except Exception as e:
+            traceback.print_exc()
+            cleanup()
+            raise

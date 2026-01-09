@@ -55,6 +55,11 @@ class LossChamferDistance(Loss[LossChamferDistanceCfg, LossChamferDistanceCfgWra
         depth_dict: dict,
         global_step: int,
     ) -> Float[Tensor, ""]:
+        if chamfer_distance is None:
+            raise ImportError(
+                "pytorch3d is required for LossChamferDistance. "
+                "Please install it with: pip install 'git+https://github.com/facebookresearch/pytorch3d.git'"
+            )
         # Scale the depth between the near and far planes.
         b, v, h, w, _ = depth_dict['distill_infos']['pts_all'].shape
         pred_pts = depth_dict['distill_infos']['pts_all'].flatten(0, 1)
